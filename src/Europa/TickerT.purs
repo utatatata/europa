@@ -5,9 +5,9 @@ import Control.Monad.Free.Trans (runFreeT)
 import Control.Monad.Iter.Trans (IterT, delay)
 import Control.Monad.Reader (class MonadAsk, ReaderT, ask, asks, runReaderT)
 import Control.Monad.Rec.Class (class MonadRec)
-import Control.Monad.State (class MonadState, StateT, evalStateT, get, modify_)
+import Control.Monad.State (class MonadState, StateT, evalStateT, gets, modify_)
 import Control.Monad.Trans.Class (class MonadTrans, lift)
-import Data.DateTime (DateTime)
+import Data.DateTime (DateTime, diff)
 import Data.DateTime.Extra (getNow)
 import Data.Identity (Identity(..))
 import Data.Int (toNumber)
@@ -41,7 +41,6 @@ runTickerT fps m = do
   go :: forall a. Identity (IterT (InternalT m) a) -> (InternalT m) (IterT (InternalT m) a)
   go (Identity a) = do
     now <- liftEffect getNow
-    TickerState { lastTickedTime } <- get
     TickerReader { fps } <- ask
     liftAff $ Aff.delay $ Milliseconds $ 1000.0 / toNumber fps
     modify_ \(TickerState s) -> TickerState $ s { lastTickedTime = now }
@@ -73,10 +72,20 @@ instance monadTransTickerT :: MonadTrans TickerT where
   lift = wrap <<< lift <<< lift <<< lift
 
 class
-  Monad m <= MonadTicker m where
+  MonadEffect m <= MonadTicker m where
   tick :: m Unit
   getFPS :: m FPS
+  getLastTickedTime :: m DateTime
+  getStartTime :: m DateTime
 
-instance monadTickerTickerT :: Monad m => MonadTicker (TickerT m) where
+instance monadTickerTickerT :: MonadEffect m => MonadTicker (TickerT m) where
   tick = wrap <<< delay $ pure unit
   getFPS = asks \(TickerReader { fps }) -> fps
+  getLastTickedTime = gets \(TickerState { lastTickedTime }) -> lastTickedTime
+  getStartTime = asks \(TickerReader { startTime }) -> startTime
+
+getDeltaTime :: forall m. MonadTicker m => m Milliseconds
+getDeltaTime = do
+  now <- liftEffect getNow
+  l <- getLastTickedTime
+  pure (now `diff` l)

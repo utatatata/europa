@@ -1,13 +1,16 @@
-module Sample.TerminalSushi where
+module Sample.Sushi where
 
 import Prelude
+import Control.Monad.Rec.Class (forever)
+import Control.Monad.State (StateT, evalStateT, get, modify_)
+import Control.Monad.Trans.Class (lift)
 import Data.Array as A
 import Data.FoldableWithIndex (forWithIndex_)
 import Data.String.CodeUnits as SCU
-import Effect (Effect)
+import Effect.Aff (Aff, Milliseconds(..))
 import Effect.Class (liftEffect)
-import Effect.Timer (setTimeout)
-import Europa.Terminal as T
+import Europa.Terminal as Term
+import Europa.TickerT as Tick
 import Europa.Util as U
 
 field :: { width :: Int, height :: Int } -> Array String
@@ -55,18 +58,26 @@ idxToPos size@{ width, height } idx =
 
   isLeft = between (width * 2 + height - 10) (width * 2 + height * 2 - 12)
 
-terminalSushi :: Effect Unit
-terminalSushi = void $ setTimeout 0 (go 0)
+sushi :: Aff Unit
+sushi =
+  Term.runTerminal
+    $ Tick.runTickerT 16
+    $ evalStateT go 0
   where
-  go :: Int -> Effect Unit
-  go n =
-    T.runTerminal do
-      eol <- SCU.singleton <$> liftEffect U.getEOL
-      T.hideCursor
-      T.clear
-      size <- T.getWindowSize
-      T.writeWithoutWrap { row: 1, col: 1 } $ A.intercalate eol (field size)
-      forWithIndex_ (SCU.toCharArray "s u s h i") \i c -> do
-        T.writeChar (idxToPos size (i + n)) c
-      T.redraw
-      void $ liftEffect $ setTimeout 125 (go (n + 1))
+  go :: StateT Int (Tick.TickerT Term.Terminal) Unit
+  go = do
+    lift $ lift Term.hideCursor
+    eol <- SCU.singleton <$> lift (liftEffect U.getEOL)
+    forever do
+      (Milliseconds d) <- lift Tick.getDeltaTime
+      when (d > 250.0) do
+        lift $ lift Term.clear
+        size <- lift $ lift $ Term.getWindowSize
+        lift $ lift $ Term.write { row: 1, col: 1 }
+          $ A.intercalate eol (field size)
+        n <- get
+        forWithIndex_ (SCU.toCharArray "s u s h i") \i c -> do
+          lift $ lift $ Term.writeChar (idxToPos size (i + n)) c
+        modify_ (add 1)
+        lift $ lift $ Term.redraw
+        lift $ Tick.tick

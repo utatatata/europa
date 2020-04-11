@@ -24,7 +24,8 @@ import Data.List.NonEmpty (NonEmptyList)
 import Data.Newtype (class Newtype, unwrap)
 import Data.String (Pattern(..), length, split, take) as S
 import Data.String.CodeUnits (singleton) as S
-import Effect (Effect)
+import Effect.Aff (Aff)
+import Effect.Aff.Class (class MonadAff)
 import Effect.Class (class MonadEffect, liftEffect)
 import Europa.Terminal.Internal as I
 
@@ -32,7 +33,7 @@ data TerminalState
   = TerminalState (NonEmptyList GraphicsParam)
 
 type Internal a
-  = (StateT TerminalState Effect) a
+  = (StateT TerminalState Aff) a
 
 newtype Terminal a
   = Terminal (Internal a)
@@ -55,14 +56,16 @@ derive newtype instance moandStateTerminal :: MonadState TerminalState Terminal
 
 derive newtype instance monadEffectTerminal :: MonadEffect Terminal
 
+derive newtype instance monadAffTerminal :: MonadAff Terminal
+
 getGraphics :: Terminal (NonEmptyList GraphicsParam)
 getGraphics = gets \(TerminalState g) -> g
 
-runTerminal :: Terminal ~> Effect
+runTerminal :: Terminal ~> Aff
 runTerminal m = do
-  I.cork
+  liftEffect I.cork
   a <- evalStateT (unwrap m) (TerminalState (pure Reset))
-  I.uncork
+  liftEffect I.uncork
   pure a
 
 moveCursor :: { row :: Int, col :: Int } -> Terminal Unit
