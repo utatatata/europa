@@ -8,6 +8,7 @@ module Europa.Terminal
   , setGraphics
   , getWindowSize
   , write
+  , writeWithoutWrap
   , writeChar
   , clear
   , redraw
@@ -18,10 +19,11 @@ import Ansi.Codes (GraphicsParam(..), EscapeCode(..), EraseParam(..), escapeCode
 import Ansi.Output (withGraphics)
 import Control.Monad.Rec.Class (class MonadRec)
 import Control.Monad.State (class MonadState, StateT, evalStateT, gets, put)
+import Data.FoldableWithIndex (forWithIndex_)
 import Data.List.NonEmpty (NonEmptyList)
 import Data.Newtype (class Newtype, unwrap)
-import Data.String as S
-import Data.String.CodeUnits as SCU
+import Data.String (Pattern(..), length, split, take) as S
+import Data.String.CodeUnits (singleton) as S
 import Effect (Effect)
 import Effect.Class (class MonadEffect, liftEffect)
 import Europa.Terminal.Internal as I
@@ -89,18 +91,38 @@ getWindowSize :: Terminal { width :: Int, height :: Int }
 getWindowSize = liftEffect I.getWindowSize
 
 write :: { row :: Int, col :: Int } -> String -> Terminal Unit
-write pos@{ row, col } s = do
-  { width, height } <- getWindowSize
-  let
-    validStr = S.take (width - col) s
-  when (between 1 height row && S.length validStr > 0) do
+write pos@{ row } s = do
+  { height } <- getWindowSize
+  when (between 1 height row) do
     withCursor do
       cursorTo pos
       g <- getGraphics
       liftEffect $ I.write $ withGraphics g s
 
+writeWithoutWrap :: { row :: Int, col :: Int } -> String -> Terminal Unit
+writeWithoutWrap pos@{ row, col } s = do
+  eol <- S.singleton <$> liftEffect I.getEOL
+  let
+    lines = S.split (S.Pattern eol) s
+  forWithIndex_ lines \i l -> do
+    if i == 0 then
+      writeLineWithoutWrap { row: row + i, col: col } l
+    else
+      writeLineWithoutWrap { row: row + i, col: 0 } l
+
+{- Internal
+ - A string of an argument must not include EOL
+ -}
+writeLineWithoutWrap :: { row :: Int, col :: Int } -> String -> Terminal Unit
+writeLineWithoutWrap pos@{ row, col } line = do
+  { width } <- getWindowSize
+  let
+    validLine = S.take (width - col + 1) line
+  when (S.length validLine > 0) do
+    write pos validLine
+
 writeChar :: { row :: Int, col :: Int } -> Char -> Terminal Unit
-writeChar pos = write pos <<< SCU.singleton
+writeChar pos = writeWithoutWrap pos <<< S.singleton
 
 clear :: Terminal Unit
 clear = liftEffect $ I.write $ escapeCodeToString (EraseData Entire)

@@ -1,8 +1,6 @@
 module Sample.TerminalSushi where
 
 import Prelude
-import Control.Monad.State (StateT, evalStateT, get, modify_)
-import Control.Monad.Trans.Class (lift)
 import Data.Array as A
 import Data.FoldableWithIndex (forWithIndex_)
 import Data.String.CodeUnits as SCU
@@ -67,7 +65,7 @@ terminalSushi = void $ setTimeout 0 (go 0)
       T.hideCursor
       T.clear
       size <- T.getWindowSize
-      T.write { row: 1, col: 1 } $ A.intercalate eol (field size)
+      T.writeWithoutWrap { row: 1, col: 1 } $ A.intercalate eol (field size)
       forWithIndex_ (SCU.toCharArray "s u s h i") \i c -> do
         T.writeChar (idxToPos size (i + n)) c
       T.redraw
